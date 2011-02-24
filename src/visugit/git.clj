@@ -6,7 +6,7 @@
             [clojure.contrib.string :as ccstr])
   (:import [java.io File]))
 
-(def dir (atom nil))
+(defonce dir (ref nil))
 
 (defn heads []
   (glob/glob (str @dir ".git/refs/heads/*")))
@@ -55,7 +55,7 @@
                                 deref :out cstr/split-lines)
         tree-id (get-tree-id tree-line)
         parent-ids (get-parent-ids lines)]
-    {:tree tree-id, :parents parent-ids}))
+    {:tree tree-id, :parents parent-ids :id obj-id}))
 
 (defn commit-map* [obj-id-queue acc]
   (if-let [id (first obj-id-queue)]
@@ -67,8 +67,8 @@
                added-acc)))
     acc))
 
-(defn commit-map []
-  (-> (get-refs) vals get-type-batch :commit (commit-map* {})))
+(defn commit-map [refs]
+  (-> refs vals get-type-batch :commit (commit-map* {})))
 
 (defn tree-obj [obj-id]
   (let [lines (-> (shell/sh "git" "cat-file" "-p" obj-id {:dir @dir})
