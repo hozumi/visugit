@@ -8,8 +8,14 @@
             [clojure.string :as cstr]
             [clojure.contrib.string :as ccstr]
             [clojure.contrib.seq-utils :as seq-utils]
+            [clojure.contrib.combinatorics :as comb]
             [rosado.processing.applet :as proapp])
-  (:import [java.io File]))
+  (:import [toxi.physics2d VerletMinDistanceSpring2D
+            VerletConstrainedSpring2D
+            VerletSpring2D
+            VerletPhysics2D
+            VerletParticle2D]
+           [toxi.geom Rect Vec2D]))
 
 (defn roundrect [x y w h r]
   (no-stroke)
@@ -28,16 +34,11 @@
       (rect 0 h w hr)
       (rect w 0 hr h))))
 
+(defonce refs (ref nil))
 (defonce commits (ref nil))
 (defonce sorted-commits (ref nil))
-(defonce id->address-map (ref {}))
-(defonce refs (ref nil))
-
-(defn draw-refs [refs]
-  (fill-float 100 250 200 250)
-  (doseq [[n lines] (seq-utils/indexed (partition-all 20 refs))
-          [i c] (seq-utils/indexed lines)]
-    (ellipse (+ 20 (* i 20)) (+ 80 (* n 20)) 10 10)))
+(defonce id->particle-map (ref {}))
+(defonce ^VerletPhysics2D physics (VerletPhysics2D.))
 
 (defn sort-commit* [acc rated-queue commits]
   (if-let [[co rate :as e] (first rated-queue)]
@@ -56,47 +57,114 @@
          (sort (fn [c1 c2] (< (second c1) (second c2)))
                (map (fn [[co rates]] [co (apply + rates)]) rated)))))
 
+(defn only-commit [[_ id]]
+  (@commits id))
+
 (defn init-obj []
   (dosync
-   (ref-set git/dir "../clj-http/")
+   (ref-set git/dir "../ring/")
    (ref-set refs (git/get-refs))
    (ref-set commits (git/commit-map @refs))
-   (ref-set sorted-commits (sort-commit @commits @refs))))
+   (ref-set sorted-commits (sort-commit @commits @refs))
+   (ref-set id->particle-map
+            (into {}
+                  (map (fn [[n {id :id}]]
+                         [id (VerletParticle2D. (float (* n 10))
+                                                (float (+ (rand-int 10) (* n 5))))])
+                       (seq-utils/indexed @sorted-commits))))
+   (alter id->particle-map
+          conj (zipmap (keys @refs)
+                       (repeatedly #(VerletParticle2D. (float 20)
+                                                       (float 20)))))
+   (alter id->particle-map
+          conj (zipmap (map #(str "label:" %) (keys @refs))
+                       (repeatedly #(VerletParticle2D. (float 20)
+                                                       (float 20))))))
+  (let [center (Vec2D. (/ (width) 2) (/ (height) 4))
+        extent (Vec2D. (/ (width) 2) (/ (height) 4))]
+    (.setWorldBounds physics (Rect/fromCenterExtent center extent)))
+  (doseq [c (vals @commits)
+          parent-id (:parents c)]
+    (let [s (VerletConstrainedSpring2D. (@id->particle-map (:id c))
+                                        (@id->particle-map parent-id) 30 0.01)]
+      (.addSpring physics s)))
+  (doseq [[me you] (comb/combinations (map @id->particle-map (keys @commits)) 2)]
+    (let [s (VerletMinDistanceSpring2D. me you 50 0.001)]
+      (.addSpring physics s)))
+  ;;refs
+  (doseq [r (filter only-commit @refs)]
+    (let [me (@id->particle-map (key r))
+          target (@id->particle-map (val r))
+          attract (VerletConstrainedSpring2D. me target 5 0.0005)
+          min (VerletMinDistanceSpring2D. me target 1 0.0001)
+          ]
+      (.addSpring physics attract)
+      (.addSpring physics min)
+      ))
+  ;; label attraction
+  (doseq [r (filter only-commit @refs)]
+    (let [me (@id->particle-map (key r))
+          label (@id->particle-map (str "label:" (key r)))
+          attract (VerletConstrainedSpring2D. me label 5 0.0005)
+          min (VerletMinDistanceSpring2D. me label 20 0.001)
+          ]
+      (.addSpring physics attract)
+      (.addSpring physics min)
+      ))
+  ;;label of ref repulsion
+  (let [labels (map (fn [id] (@id->particle-map (str "label:" id)))
+                    (keys (filter only-commit @refs)))]
+    (doseq [[la1 la2] (comb/combinations labels 2)]
+      (let [min (VerletMinDistanceSpring2D. la1 la2 25 0.8)]
+        (.addSpring physics min)
+        )))
+  (doseq [p (vals @id->particle-map)]
+    (.addParticle physics p))
+  )
 
-(defn draw-commit [s-commits]
+(defn draw-refs []
+  (doseq [k (keys (filter only-commit @refs))]
+    (let [^VerletParticle2D p (@id->particle-map k)]
+      (fill-float 100 250 200 150)
+      (ellipse (.x p) (.y p) 10 10))
+    (let [^VerletParticle2D p (@id->particle-map (str "label:" k))]
+      (text-align CENTER)
+      (fill 0)
+      (string->text k (.x p) (.y p)))))
+
+(defn draw-commit []
   (fill-float 100 100 250 250)
-  (let [num 10]
-    (doseq [[n lines] (seq-utils/indexed (partition-all num s-commits))
-            [i c] (seq-utils/indexed lines)]
-      (let [x (+ 20 (if (even? n) (* i 20) (- (* num 20) (* (inc i) 20))))
-            y (+ 200 (* n 20))]
-        (dosync (alter id->address-map assoc (:id c) [x y]))
-        (ellipse x y 10 10)))
-    (stroke 20 20 240 255)
-    (stroke-weight 2)
-    (doseq [c s-commits
-            p (:parents c)]
-      (line (@id->address-map (:id c))
-            (@id->address-map p)))))
+  (doseq [entr  @commits]
+    (let [^VerletParticle2D p (@id->particle-map (key entr))]
+      (ellipse (.x p) (.y p) 10 10)
+      ;;(text-align CENTER)
+      ;;(string->text (key entr) (.x p) (+ (.y p) 20))
+      ))
+  (doseq [c (vals @commits)
+          parent-id (:parents c)]
+    (let [^VerletParticle2D p1 (@id->particle-map (:id c))
+          ^VerletParticle2D p2 (@id->particle-map parent-id)]
+      (line (.x p1) (.y p1) (.x p2) (.y p2)))))
 
 (defn draw []
   (background-int 220)
-  (framerate 1)
+  (.update physics)
+  ;;(framerate 1)
   (stroke-float 150)
   (color-mode RGB)
   (fill-float 50 50 200 250)
-  (draw-refs @refs)
-  (draw-commit @sorted-commits)
-  ;;(roundrect 200 200 50 50 20)
-  ;;(filter-kind INVERT)
-  )
+  (draw-commit)
+  (draw-refs))
 
 (defn setup []
+  (let [f (create-font "Arial" 11 true)]
+    (text-font f))
   (init-obj)
   (smooth)
   (no-stroke)
   (fill 226)
-  (framerate 1))
+  (framerate 10))
+
 
 (proapp/defapplet example2 :title "An example."
   :setup setup :draw draw :size [800 800])

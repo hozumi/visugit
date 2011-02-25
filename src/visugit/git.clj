@@ -17,13 +17,20 @@
                            [(.getName f) (cstr/trim-newline (slurp f))])
                          branch-files))))
 
+(defn simple-name [^String ref-name]
+  (let [[fs & res] (.split ref-name "/")]
+    (cond
+     (= fs "HEAD") fs
+     (= fs "tags") ref-name
+     :else (apply str (interpose "/" (rest res))))))
+
 (defn get-refs []
   (into {} (for [^String line (-> (shell/sh "git" "show-ref" "--head" {:dir @dir})
                                   deref
                                   :out
                                   cstr/split-lines)]
              (let [[sha1 nam] (.split line "\\s+")]
-               [nam sha1]))))
+               [(simple-name nam) sha1]))))
 
 (defn get-type [obj-id]
   (-> (shell/sh "git" "cat-file" "-t" obj-id {:dir @dir})
