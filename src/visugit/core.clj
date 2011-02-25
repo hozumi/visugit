@@ -38,6 +38,8 @@
 (defonce commits (ref nil))
 (defonce sorted-commits (ref nil))
 (defonce id->particle-map (ref {}))
+(defonce attractive-springs (ref {}))
+(defonce repulsive-springs (ref {}))
 (defonce ^VerletPhysics2D physics (VerletPhysics2D.))
 
 (defn sort-commit* [acc rated-queue commits]
@@ -62,7 +64,7 @@
 
 (defn init-obj []
   (dosync
-   (ref-set git/dir "../ring/")
+   (ref-set git/dir "../clj-http/")
    (ref-set refs (git/get-refs))
    (ref-set commits (git/commit-map @refs))
    (ref-set sorted-commits (sort-commit @commits @refs))
@@ -80,16 +82,20 @@
           conj (zipmap (map #(str "label:" %) (keys @refs))
                        (repeatedly #(VerletParticle2D. (float 20)
                                                        (float 20))))))
-  (let [center (Vec2D. (/ (width) 2) (/ (height) 4))
-        extent (Vec2D. (/ (width) 2) (/ (height) 4))]
-    (.setWorldBounds physics (Rect/fromCenterExtent center extent)))
+  (.setWorldBounds physics
+                   (Rect. (Vec2D. 10 10)
+                          (Vec2D. (- (width) 10) (- (/ (height) 2) 10))))
+    
   (doseq [c (vals @commits)
           parent-id (:parents c)]
-    (let [s (VerletConstrainedSpring2D. (@id->particle-map (:id c))
-                                        (@id->particle-map parent-id) 30 0.01)]
+    (let [me-p (@id->particle-map (:id c))
+          you-p (@id->particle-map parent-id)
+          s (VerletConstrainedSpring2D. me-p you-p 30 0.01)]
+      (dosync (alter attractive-springs conj [[me-p you-p] s]))
       (.addSpring physics s)))
   (doseq [[me you] (comb/combinations (map @id->particle-map (keys @commits)) 2)]
     (let [s (VerletMinDistanceSpring2D. me you 50 0.001)]
+      (dosync (alter repulsive-springs conj [[me you] s]))
       (.addSpring physics s)))
   ;;refs
   (doseq [r (filter only-commit @refs)]
@@ -98,16 +104,22 @@
           attract (VerletConstrainedSpring2D. me target 5 0.0005)
           min (VerletMinDistanceSpring2D. me target 1 0.0001)
           ]
+      (dosync
+       (alter attractive-springs conj [[me target] attract])
+       (alter repulsive-springs conj [[me target] min]))
       (.addSpring physics attract)
       (.addSpring physics min)
       ))
   ;; label attraction
   (doseq [r (filter only-commit @refs)]
-    (let [me (@id->particle-map (key r))
-          label (@id->particle-map (str "label:" (key r)))
-          attract (VerletConstrainedSpring2D. me label 5 0.0005)
-          min (VerletMinDistanceSpring2D. me label 20 0.001)
+    (let [me-p (@id->particle-map (key r))
+          label-p (@id->particle-map (str "label:" (key r)))
+          attract (VerletConstrainedSpring2D. me-p label-p 5 0.0005)
+          min (VerletMinDistanceSpring2D. me-p label-p 20 0.001)
           ]
+      (dosync
+       (alter attractive-springs conj [[me-p label-p] attract])
+       (alter repulsive-springs conj [[me-p label-p] min]))
       (.addSpring physics attract)
       (.addSpring physics min)
       ))
@@ -116,6 +128,7 @@
                     (keys (filter only-commit @refs)))]
     (doseq [[la1 la2] (comb/combinations labels 2)]
       (let [min (VerletMinDistanceSpring2D. la1 la2 25 0.8)]
+        (dosync (alter repulsive-springs conj [[la1 la2] min]))
         (.addSpring physics min)
         )))
   (doseq [p (vals @id->particle-map)]
@@ -125,7 +138,9 @@
 (defn draw-refs []
   (doseq [k (keys (filter only-commit @refs))]
     (let [^VerletParticle2D p (@id->particle-map k)]
-      (fill-float 100 250 200 150)
+      (if (= "HEAD" k)
+        (fill-float 250 50 50 150)
+        (fill-float 100 250 200 150))
       (ellipse (.x p) (.y p) 10 10))
     (let [^VerletParticle2D p (@id->particle-map (str "label:" k))]
       (text-align CENTER)
