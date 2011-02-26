@@ -67,47 +67,6 @@
   (VerletParticle2D. (float (rand-int 1000))
                      (float (rand-int 1000))))
 
-(defn init-obj []
-  (dosync
-   (ref-set git/dir "../clj-http/")
-   (ref-set refs (git/get-refs))
-   ;;(ref-set commits (git/commit-map @refs))
-   (alter id->particle-map
-          conj (zipmap (keys @refs)
-                       (repeatedly create-particle)))
-   (alter id->particle-map
-          conj (zipmap (map #(str "label:" %) (keys @refs))
-                       (repeatedly create-particle))))
-  (.setWorldBounds physics
-                   (Rect. (Vec2D. 10 10)
-                          (Vec2D. (- (width) 10) (- (/ (height) 2) 10))))
-  ;; label - ref
-  (doseq [r (vals (filter git/is-type-commit? @refs))]
-    (let [ref-p (@id->particle-map (:name r))
-          label-p (@id->particle-map (str "label:" (:name r)))
-          attract (VerletConstrainedSpring2D. ref-p label-p 5 0.0005)
-          min (VerletMinDistanceSpring2D. ref-p label-p 20 0.001)
-          ]
-      (dosync
-       (alter springs assoc #{(:name r) (str "label:" (:name r)) :attraction} attract)
-       (alter springs assoc #{(:name r) (str "label:" (:name r)) :repulsion} min))
-      (.addSpring physics attract)
-      (.addSpring physics min)
-      ))
-  ;;label - label repulsion
-  (let [label-keys (map #(str "label:" %)
-                    (keys (filter git/is-type-commit? @refs)))]
-    (doseq [[la1-key la2-key] (comb/combinations label-keys 2)]
-      (let [la1 (@id->particle-map la1-key)
-            la2 (@id->particle-map la2-key)
-            min (VerletMinDistanceSpring2D. la1 la2 25 0.8)]
-        (dosync (alter springs assoc #{la1-key la2-key :repulsion} min))
-        (.addSpring physics min)
-        )))
-  (doseq [p (vals @id->particle-map)]
-    (.addParticle physics p))
-  )
-
 (defn add-commit [{:keys [id] :as co}]
   (let [me-p (create-particle)]
     (dosync
@@ -157,27 +116,60 @@
       (doseq [co @cache]
         (add-commit (val co))))))
 
-#_(defn update-refs []
-  (when (not= @refs @digged-refs)
-    (let [removed-refs (set/difference @refs @digged-refs)
-          removed-ref-ps (map #(@id->particle-map (:name %)) removed)
-          removed-label-ps (map #(@id->particle-map (str "label:" (:name %))) removed)
-          removed-springs (map #(@repulsive-ref->commit-springs ))
-          added (set/difference @digged-refs @refs)]
+(defn add-ref [{name :name :as r}]
+  (let [ref-p (create-particle)
+        label-p (create-particle)
+        label-id (str "label:" name)
+        attract (VerletConstrainedSpring2D. ref-p label-p 5 0.0005)
+        min (VerletMinDistanceSpring2D. ref-p label-p 20 0.001)]
     (dosync
-     (ref-set refs @digged-refs)
-     (doseq [{name :name :as r} added]
-       (alter id->particle-map conj
-              [name (create-particle)])
-       (alter id->particle-map conj
-              [(str "label:" name) (create-particle)]))
-     (doseq [{name :name :as r} removed]
-       (alter id->particle-map dissoc name)
-       (alter id->particle-map dissoc (str "label:" name))))
-     (let [removed]))))
-     
+     (alter id->particle-map conj [name ref-p])
+     (alter id->particle-map conj [label-id label-p])
+     (alter springs assoc #{name label-id :attraction} attract)
+     (alter springs assoc #{name label-id :repulsion} min))
+    (.addParticle physics ref-p)
+    (.addParticle physics label-p)
+    (.addSpring physics attract)
+    (.addSpring physics min)
+    ;;label - label repulsion
+    (doseq [you-label-id (filter @id->particle-map
+                                 (map #(str "label:" %)
+                                      (keys (filter git/is-type-commit? @refs))))]
+      (when-not (= you-label-id label-id)
+        (let [you-label-p (@id->particle-map you-label-id)
+              min (VerletMinDistanceSpring2D. label-p you-label-p 25 0.8)]
+          (dosync (alter springs assoc #{label-id you-label-id :repulsion} min))
+          (.addSpring physics min))))))
+
+(defn remove-ref [{name :name :as r}]
+  (let [ref-p (@id->particle-map name)
+        label-id (str "label:" name)
+        label-p (@id->particle-map label-id)
+        my-spring-keys (filter (fn [s] (or (s name) (s label-id)))
+                               (keys @springs))
+        my-springs (map @springs my-spring-keys)]
+    (dosync
+     (alter id->particle-map dissoc name)
+     (alter id->particle-map dissoc label-id)
+     (alter springs #(apply dissoc % my-spring-keys)))
+    (.removeParticle physics ref-p)
+    (.removeParticle physics label-p)
+    (doseq [s my-springs]
+      (.removeSpring physics s))))
+
+(defn update-refs []
+  (when (not= @refs @digged-refs)
+    (let [removed-refs (set/difference (-> @refs vals set) (-> @digged-refs vals set))
+          added-refs (set/difference (-> @digged-refs vals set) (-> @refs vals set))]
+      (dosync
+       (ref-set refs @digged-refs))
+      (doseq [r added-refs]
+        (add-ref r))
+      (doseq [r removed-refs]
+        (remove-ref r)))))
+
 (defn draw-refs []
-  (doseq [k (keys (filter git/is-type-commit? @refs))]
+  (doseq [k (filter @id->particle-map (keys (filter git/is-type-commit? @refs)))]
     (let [^VerletParticle2D p (@id->particle-map k)]
       (if (= "HEAD" k)
         (fill-float 250 50 50 150)
@@ -209,6 +201,7 @@
   (stroke-float 150)
   (color-mode RGB)
   (fill-float 50 50 200 250)
+  (update-refs)
   (update-commits)
   (draw-commit)
   (draw-refs))
@@ -216,7 +209,14 @@
 (defn setup []
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
-  (init-obj)
+  (dosync
+   (ref-set git/dir "../clj-http/")
+   (ref-set digged-refs (git/get-refs)))
+  (update-refs)
+  (.setWorldBounds physics
+                   (Rect. (Vec2D. 10 10)
+                          (Vec2D. (- (width) 10) (- (/ (height) 2) 10))))
+  (future (git/run-update-refs digged-refs))
   (future (git/run-update-commit-map @refs digged-commits stop-digg-commits-flag))
   (smooth)
   (no-stroke)

@@ -45,6 +45,13 @@
                       n (simple-name nam)]
                   [n {:name n, :id sha1, :type type}])))))
 
+(defn run-update-refs [refs-ref]
+  (loop []
+    (let [new-refs (get-refs)]
+      (dosync (ref-set refs-ref new-refs))
+      (Thread/sleep 5000)
+      (recur))))
+
 (defn is-type-commit? [[_ r]]
   (= (:type r) "commit"))
 
