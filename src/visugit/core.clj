@@ -46,23 +46,6 @@
 (defonce staged-files (ref []))
 (defonce ^VerletPhysics2D physics (VerletPhysics2D.))
 
-#_(defn sort-commit* [acc rated-queue commits]
-  (if-let [[co rate :as e] (first rated-queue)]
-    (let [rated-parents (map (fn [c] [c (inc rate)])
-                             (map commits (:parents co)))]
-      (recur (update-in acc [co] (fn [lis] (if lis (conj lis rate) [rate])))
-             (into (rest rated-queue) rated-parents) commits))
-    acc))
-
-#_(defn sort-commit [commits refs]
-  (let [rated (sort-commit* {}
-                            (for [[i refed-commit-id] (seq-utils/indexed (filter commits (vals refs)))]
-                              [(commits refed-commit-id) (* 100 i)])
-                            commits)]
-    (map first
-         (sort (fn [c1 c2] (< (second c1) (second c2)))
-               (map (fn [[co rates]] [co (apply + rates)]) rated)))))
-
 (defn create-particle []
   (VerletParticle2D. (float (rand-int 1000))
                      (float (rand-int 1000))))
