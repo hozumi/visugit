@@ -18,19 +18,35 @@
                          branch-files))))
 
 (defn simple-name [^String ref-name]
-  (let [[fs & res] (.split ref-name "/")]
+  (let [[fs sec thir four] (.split ref-name "/")]
     (cond
      (= fs "HEAD") fs
-     (= fs "tags") ref-name
-     :else (apply str (interpose "/" (rest res))))))
+     (= sec "tags") (str sec "/" thir)
+     (= sec "heads") thir
+     (= sec "remotes") (str thir "/" four))))
+
+(defn get-head-ref []
+  (let [^String line (-> (shell/sh "git" "show-ref" "--head" {:dir @dir})
+                         deref
+                         :out
+                         cstr/split-lines
+                         first)
+        [sha1 nam] (.split line "\\s+")]
+    [nam {:name nam, :type "commit" :id sha1}]))
 
 (defn get-refs []
-  (into {} (for [^String line (-> (shell/sh "git" "show-ref" "--head" {:dir @dir})
-                                  deref
-                                  :out
-                                  cstr/split-lines)]
-             (let [[sha1 nam] (.split line "\\s+")]
-               [(simple-name nam) sha1]))))
+  (into {}
+        (cons (get-head-ref)
+              (for [^String line (-> (shell/sh "git" "for-each-ref" {:dir @dir})
+                                     deref
+                                     :out
+                                     cstr/split-lines)]
+                (let [[sha1 type nam] (.split line "\\s+")
+                      n (simple-name nam)]
+                  [n {:name n, :id sha1, :type type}])))))
+
+(defn is-type-commit? [[_ r]]
+  (= (:type r) "commit"))
 
 (defn get-type [obj-id]
   (-> (shell/sh "git" "cat-file" "-t" obj-id {:dir @dir})
@@ -64,18 +80,26 @@
         parent-ids (get-parent-ids lines)]
     {:tree tree-id, :parents parent-ids :id obj-id}))
 
-(defn commit-map* [obj-id-queue acc]
-  (if-let [id (first obj-id-queue)]
+(defn commit-map* [queue acc]
+  (if-let [id (first queue)]
     (if (acc id)
-      (recur (subvec obj-id-queue 1) acc)
+      (recur (subvec queue 1) acc)
       (let [co (commit-obj id)
-            added-acc (assoc acc id co)]
-        (recur (into (subvec obj-id-queue 1) (:parents co))
-               added-acc)))
-    acc))
+            new-queue (into (subvec queue 1) (:parents co))]
+        {:queue new-queue, :commit-entry [id co]}))
+    nil))
 
-(defn commit-map [refs]
-  (-> refs vals get-type-batch :commit (commit-map* {})))
+(defn run-update-commit-map [refs commits-ref stop-switch-ref]
+  (let [initial-commits (vec (map :id (vals (filter is-type-commit? refs))))]
+    (loop [queue initial-commits
+           acc @commits-ref]
+      (if @stop-switch-ref
+        (do (Thread/sleep 1000)
+            (recur queue acc))
+        (if-let [{:keys [queue commit-entry]} (commit-map* queue acc)]
+          (do (dosync (alter commits-ref conj commit-entry))
+              (recur queue @commits-ref))
+          :finish)))))
 
 (defn tree-obj [obj-id]
   (let [lines (-> (shell/sh "git" "cat-file" "-p" obj-id {:dir @dir})
@@ -104,9 +128,28 @@
 (defn tree-map-by-comits [commit-map]
   (tree-map (into [] (map :tree (vals commit-map))) {}))
 
-;;(defn commit-map [acc commit-objs]
-;;  (
+(defn get-staged-files []
+  (let [output (-> (shell/sh "git" "diff" "--cached" "--name-only" {:dir @dir})
+                  deref :out)]
+    (if output
+      (cstr/split-lines output)
+      [])))
 
-;;(get-type "67025a4d86c6fc87c4c5c8f9ce38c22b3019d79a" "../clj-http/")
-;;"commit"
+(defn get-modified-files []
+  (if-let [out (-> (shell/sh "git" "ls-files" "-m" {:dir @dir})
+                   deref :out)]
+    (cstr/split-lines out)
+    []))
+
+(defn get-untracked-files []
+  (let [resp (-> (shell/sh "git" "ls-files" "-o" "--exclude-from=.gitignore" {:dir @dir})
+                 deref)]
+    (if (= 128 (:exit resp))
+      (if-let [out (-> (shell/sh "git" "ls-files" "-o" {:dir @dir})
+                       deref :out)]
+        (cstr/split-lines out)
+        [])
+      (if-let [out (:out resp)]
+        (cstr/split-lines out)
+        []))))
 
