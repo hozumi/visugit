@@ -18,23 +18,6 @@
             VerletParticle2D]
            [toxi.geom Rect Vec2D]))
 
-(defn roundrect [x y w h r]
-  (no-stroke)
-  (rect-mode CORNER)
-  (with-translation [x y]
-    (let [ax (- w 1)
-          ay (- h 1)
-          hr (/ r 2)]
-      (rect 0 0 w h)
-      (arc 0 0 r r (radians 180) (radians 270))
-      (arc ax 0 r r (radians 270) (radians 360))
-      (arc 0 ay r r (radians 90) (radians 180))
-      (arc ax ay r r (radians 0) (radians 90))
-      (rect 0 (- hr) w hr)
-      (rect (- hr) 0 hr h)
-      (rect 0 h w hr)
-      (rect w 0 hr h))))
-
 (defonce refs (ref {}))
 (defonce digged-refs (ref {}))
 (defonce commits (ref {}))
@@ -43,51 +26,45 @@
 (defonce id->particle-map (ref {}))
 (defonce springs (ref {}))
 (defonce stop-digg-commits-flag (ref false))
-(defonce staged-files (ref []))
 (defonce ^VerletPhysics2D physics (VerletPhysics2D.))
 
-(defn create-particle []
-  (VerletParticle2D. (float (rand-int 1000))
-                     (float (rand-int 1000))))
+(defn create-particle [id]
+  (let [p (VerletParticle2D. (float (rand-int 1000))
+                             (float (rand-int 1000)))]
+    (dosync
+     (alter id->particle-map assoc id p))
+    (.addParticle physics p)
+    p))
+
+(defn create-springs [{:keys [constrained min]} me-id other-ids]
+  (let [me-p (@id->particle-map me-id)]
+    (doseq [other-id other-ids]
+      (when (not= me-id other-id)
+        (when-let [other-p (@id->particle-map other-id)]
+          (when constrained
+            (let [s (VerletConstrainedSpring2D. me-p other-p (:len constrained) (:str constrained))]
+              (dosync (alter springs assoc #{me-id other-id :constrained} s))
+              (.addSpring physics s)))
+          (when min
+            (let [s (VerletMinDistanceSpring2D. me-p other-p (:len min) (:str min))]
+              (dosync (alter springs assoc #{me-id other-id :min} s))
+              (.addSpring physics s))))))))
 
 (defn add-commit [{:keys [id] :as co}]
-  (let [me-p (create-particle)]
-    (dosync
-     (alter id->particle-map assoc id me-p)
-     (doseq [parent-id (:parents co)]
-       (alter parent->child-commits update-in [parent-id]
-              (fn [child-ids] (if child-ids [id] (conj child-ids id))))))
-    (.addParticle physics me-p)
-    ;;attraction to parents
-    (doseq [parent-id (:parents co)]
-      (when-let [parent-p (@id->particle-map parent-id)]
-        (let [s (VerletConstrainedSpring2D. me-p parent-p 30 0.01)]
-          (dosync (alter springs assoc #{id parent-id :attraction} s))
-          (.addSpring physics s))))
-    ;;attraction to childs
-    (doseq [child-id (@parent->child-commits id)]
-      (when-let [child-p (@id->particle-map child-id)]
-        (let [s (VerletConstrainedSpring2D. me-p child-p 30 0.01)]
-          (dosync (alter springs assoc #{child-id id :attraction} s))
-          (.addSpring physics s))))
-    ;;repulsion
-    (doseq [you-id (filter @id->particle-map (keys @commits))]
-      (let [you-p (@id->particle-map you-id)]
-        (when-not (= id you-id)
-          (let [s (VerletMinDistanceSpring2D. me-p you-p 50 0.001)]
-            (dosync (alter springs assoc #{id you-id :repulsion} s))
-            (.addSpring physics s)))))
-    ;;attraction to corresponding refs
-    (doseq [ref-id (map :name (filter (fn [r] (= id (:id r))) (vals @refs)))]
-      (let [ref-p (@id->particle-map ref-id)
-            attract (VerletConstrainedSpring2D. me-p ref-p 5 0.0005)
-            min (VerletMinDistanceSpring2D. me-p ref-p 1 0.0001)]
-        (dosync
-         (alter springs assoc #{id ref-id :attraction} attract)
-         (alter springs assoc #{id ref-id :repulsion} min))
-        (.addSpring physics attract)
-        (.addSpring physics min)))
-    ))
+  (create-particle id)
+  (dosync
+   (doseq [parent-id (:parents co)]
+     (alter parent->child-commits update-in [parent-id]
+            (fn [child-ids] (if child-ids [id] (conj child-ids id))))))
+  ;;attraction to parents
+  (create-springs {:constrained {:len 30 :str 0.01}} id (:parents co))
+  ;;attraction to childs
+  (create-springs {:constrained {:len 30 :str 0.01}} id (@parent->child-commits id))
+  ;;repulsion
+  (create-springs {:min {:len 50 :str 0.001}} id (keys @commits))
+  ;;attraction to corresponding refs
+  (create-springs {:constrained {:len 5 :str 0.01}};;, :min {:len 2 :str 0.001}}
+                  id (map :name (filter (fn [r] (= id (:id r))) (vals @refs)))))
 
 (defn update-commits []
   (when-not (empty? @digged-commits)
@@ -100,29 +77,15 @@
         (add-commit (val co))))))
 
 (defn add-ref [{name :name :as r}]
-  (let [ref-p (create-particle)
-        label-p (create-particle)
-        label-id (str "label:" name)
-        attract (VerletConstrainedSpring2D. ref-p label-p 5 0.0005)
-        min (VerletMinDistanceSpring2D. ref-p label-p 20 0.001)]
-    (dosync
-     (alter id->particle-map conj [name ref-p])
-     (alter id->particle-map conj [label-id label-p])
-     (alter springs assoc #{name label-id :attraction} attract)
-     (alter springs assoc #{name label-id :repulsion} min))
-    (.addParticle physics ref-p)
-    (.addParticle physics label-p)
-    (.addSpring physics attract)
-    (.addSpring physics min)
+  (let [label-id (str "label:" name)]
+    (create-particle name)
+    (create-particle label-id)
+    (create-springs {:constrained {:len 5 :str 0.05}, :min {:len 20 :str 0.001}}
+                    name [label-id])
     ;;label - label repulsion
-    (doseq [you-label-id (filter @id->particle-map
-                                 (map #(str "label:" %)
-                                      (keys (filter git/is-type-commit? @refs))))]
-      (when-not (= you-label-id label-id)
-        (let [you-label-p (@id->particle-map you-label-id)
-              min (VerletMinDistanceSpring2D. label-p you-label-p 25 0.8)]
-          (dosync (alter springs assoc #{label-id you-label-id :repulsion} min))
-          (.addSpring physics min))))))
+    (create-springs {:min {:len 25 :str 0.6}}
+                    name (map #(str "label:" %)
+                              (keys (filter git/is-type-commit? @refs))))))
 
 (defn remove-ref [{name :name :as r}]
   (let [ref-p (@id->particle-map name)
@@ -193,7 +156,7 @@
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
   (dosync
-   (ref-set git/dir "../clj-http/")
+   (ref-set git/dir "../ring/")
    (ref-set digged-refs (git/get-refs)))
   (update-refs)
   (.setWorldBounds physics
