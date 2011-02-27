@@ -87,32 +87,46 @@
                     name (map #(str "label:" %)
                               (keys (filter git/is-type-commit? @refs))))))
 
-(defn remove-ref [{name :name :as r}]
-  (let [ref-p (@id->particle-map name)
-        label-id (str "label:" name)
-        label-p (@id->particle-map label-id)
-        my-spring-keys (filter (fn [s] (or (s name) (s label-id)))
+(defn remove-particle&springs [id]
+  (let [p (@id->particle-map id)
+        my-spring-keys (filter (fn [s] (s id))
                                (keys @springs))
         my-springs (map @springs my-spring-keys)]
     (dosync
-     (alter id->particle-map dissoc name)
-     (alter id->particle-map dissoc label-id)
+     (alter id->particle-map dissoc id)
      (alter springs #(apply dissoc % my-spring-keys)))
-    (.removeParticle physics ref-p)
-    (.removeParticle physics label-p)
+    (.removeParticle physics p)
     (doseq [s my-springs]
       (.removeSpring physics s))))
 
+(defn remove-spring [k]
+  (when-let [sp (@springs k)]
+    (.removeSpring physics sp)
+    (dosync
+     (alter springs dissoc k))))
+  
+(defn modify-ref [old-ref new-ref]
+  (remove-spring #{(:name old-ref) (:id old-ref) :constrained})
+  (create-springs {:constrained {:len 5 :str 0.01}}
+                  (:name new-ref) [(:id new-ref)]))
+  
 (defn update-refs []
   (when (not= @refs @digged-refs)
-    (let [removed-refs (set/difference (-> @refs vals set) (-> @digged-refs vals set))
-          added-refs (set/difference (-> @digged-refs vals set) (-> @refs vals set))]
+    (let [refs-set (-> @refs keys set)
+          digged-set (-> @digged-refs keys set)
+          removed-ref-ids (set/difference refs-set digged-set)
+          added-ref-ids (set/difference digged-set refs-set)
+          modified-ids (filter (fn [k] (not= (@refs k) (@digged-refs k)))
+                               (set/intersection refs-set digged-set))]
+      (doall (map modify-ref (map @refs modified-ids) (map @digged-refs modified-ids)))
       (dosync
        (ref-set refs @digged-refs))
-      (doseq [r added-refs]
+      (doseq [r (map @refs added-ref-ids)]
         (add-ref r))
-      (doseq [r removed-refs]
-        (remove-ref r)))))
+      (doseq [id removed-ref-ids]
+        (remove-particle&springs id)
+        (remove-particle&springs (str "label:" id)))
+      )))
 
 (defn draw-refs []
   (doseq [k (filter @id->particle-map (keys (filter git/is-type-commit? @refs)))]
@@ -156,14 +170,14 @@
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
   (dosync
-   (ref-set git/dir "../ring/")
+   (ref-set git/dir "../git_tutorial/work/hello/")
    (ref-set digged-refs (git/get-refs)))
   (update-refs)
   (.setWorldBounds physics
                    (Rect. (Vec2D. 10 10)
                           (Vec2D. (- (width) 10) (- (/ (height) 2) 10))))
-  (future (git/run-update-refs digged-refs))
-  (future (git/run-update-commit-map @refs digged-commits stop-digg-commits-flag))
+  (future (git/run-update-refs digged-refs 1000))
+  (future (git/run-update-commit-map @refs digged-commits stop-digg-commits-flag 1000))
   (smooth)
   (no-stroke)
   (fill 226)

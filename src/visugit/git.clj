@@ -45,11 +45,11 @@
                       n (simple-name nam)]
                   [n {:name n, :id sha1, :type type}])))))
 
-(defn run-update-refs [refs-ref]
+(defn run-update-refs [refs-ref polling-ms]
   (loop []
     (let [new-refs (get-refs)]
       (dosync (ref-set refs-ref new-refs))
-      (Thread/sleep 5000)
+      (Thread/sleep polling-ms)
       (recur))))
 
 (defn is-type-commit? [[_ r]]
@@ -96,12 +96,12 @@
         {:queue new-queue, :commit-entry [id co]}))
     nil))
 
-(defn run-update-commit-map [refs commits-ref stop-switch-ref]
+(defn run-update-commit-map [refs commits-ref stop-switch-ref polling-ms]
   (let [initial-commits (vec (map :id (vals (filter is-type-commit? refs))))]
     (loop [queue initial-commits
            acc @commits-ref]
       (if @stop-switch-ref
-        (do (Thread/sleep 1000)
+        (do (Thread/sleep polling-ms)
             (recur queue acc))
         (if-let [{:keys [queue commit-entry]} (commit-map* queue acc)]
           (do (dosync (alter commits-ref conj commit-entry))
