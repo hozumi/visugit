@@ -170,14 +170,14 @@
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
   (dosync
-   (ref-set git/dir "../git_tutorial/work/hello/")
+   (ref-set git/dir "../ring/");;"../git_tutorial/work/hello/")
    (ref-set digged-refs (git/get-refs)))
   (update-refs)
   (.setWorldBounds physics
                    (Rect. (Vec2D. 10 10)
                           (Vec2D. (- (width) 10) (- (/ (height) 2) 10))))
   (future (git/run-update-refs digged-refs 1000))
-  (future (git/run-update-commit-map @refs digged-commits stop-digg-commits-flag 1000))
+  (future (git/run-update-commit-map (keys @refs) digged-commits @commits))
   (smooth)
   (no-stroke)
   (fill 226)

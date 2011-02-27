@@ -4,7 +4,8 @@
             [clojure.java.io :as jio]
             [clojure.string :as cstr]
             [clojure.contrib.string :as ccstr])
-  (:import [java.io File]))
+  (:import [java.io File]
+           [java.util Date]))
 
 (defonce dir (ref nil))
 
@@ -80,33 +81,27 @@
   (map (fn [line] (second (re-find #"parent (.*)$" line)))
        (take-while (fn [^String line] (.startsWith line "parent")) lines)))
 
-(defn commit-obj [obj-id]
-  (let [[tree-line & lines] (-> (shell/sh "git" "cat-file" "-p" obj-id {:dir @dir})
-                                deref :out cstr/split-lines)
-        tree-id (get-tree-id tree-line)
-        parent-ids (get-parent-ids lines)]
-    {:tree tree-id, :parents parent-ids :id obj-id}))
+(defn commit-obj [^String obj-line acc]
+  (let [[hash parents tree date author subject]
+        (.split obj-line "::::")]
+    (if-let [co (acc hash)]
+      co
+      (let [parents (seq (.split ^String parents " "))
+            parents (if (= parents '("")) () parents)]
+        {:id hash :parents parents :tree tree :date (-> date read-string long Date.)
+         :author author :subject subject}))))
 
-(defn commit-map* [queue acc]
-  (if-let [id (first queue)]
-    (if (acc id)
-      (recur (subvec queue 1) acc)
-      (let [co (commit-obj id)
-            new-queue (into (subvec queue 1) (:parents co))]
-        {:queue new-queue, :commit-entry [id co]}))
-    nil))
+(defn commit-map [start acc]
+  (reduce (fn [m co] (assoc m (:id co) co)) {}
+          (map #(commit-obj % acc)
+               (-> (shell/sh "git" "log" "--format=%H::::%P::::%T::::%at::::%an::::%s"
+                             start {:dir @dir})
+                   deref :out cstr/split-lines))))
 
-(defn run-update-commit-map [refs commits-ref stop-switch-ref polling-ms]
-  (let [initial-commits (vec (map :id (vals (filter is-type-commit? refs))))]
-    (loop [queue initial-commits
-           acc @commits-ref]
-      (if @stop-switch-ref
-        (do (Thread/sleep polling-ms)
-            (recur queue acc))
-        (if-let [{:keys [queue commit-entry]} (commit-map* queue acc)]
-          (do (dosync (alter commits-ref conj commit-entry))
-              (recur queue @commits-ref))
-          :finish)))))
+(defn run-update-commit-map [starts digged-commits-ref total-commits]
+  (doseq [start starts]
+    (let [commits (commit-map start (merge @digged-commits-ref total-commits))]
+      (dosync (alter digged-commits-ref merge commits)))))
 
 (defn tree-obj [obj-id]
   (let [lines (-> (shell/sh "git" "cat-file" "-p" obj-id {:dir @dir})
