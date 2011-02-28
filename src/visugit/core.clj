@@ -44,8 +44,8 @@
 
 (defn draw-stage&wt []
   (let [staged-y (+ (/ (height) 2) 20)
-        modified-y (+ staged-y (* text-height (inc (min row-max (count @staged-files)))))
-        untracked-y (+ modified-y (* text-height (inc (min row-max (count @modified-files)))))]
+        modified-y (+ staged-y (* text-height (min row-max (max 1 (count @staged-files)))))
+        untracked-y (+ modified-y (* text-height (min row-max (max 1 (count @modified-files)))))]
     (fill 0)
     (text-align LEFT)
     (string->text "staged files" 10 staged-y)
