@@ -55,7 +55,7 @@ case "$1" in
         mkdir -p "$VISUGIT_DIR"
         VISUGIT_URL="https://github.com/downloads/hozumi/visugit/visugit-$VISUGIT_VERSION-standalone.jar"
         $HTTP_CLIENT "$VISUGIT_JAR" "$VISUGIT_URL"
-        case $? in
+        case "$?" in
             0)
                 echo "Download successful : $VISUGIT_JAR"
                 exit 0;;
@@ -63,7 +63,8 @@ case "$1" in
                 echo "Failed to download $VISUGIT_URL"
                 rm $VISUGIT_JAR 2> /dev/null
                 exit 1;;
-        esac;;
+        esac
+        ;;
     "upgrade")
         if [ ! -w "$SCRIPT" ]; then
             echo "You do not have permission to upgrade the installation in $SCRIPT"
@@ -85,7 +86,8 @@ case "$1" in
                 *)
                     echo "Aborted."
                     exit 1;;
-            esac;;
+            esac
+            ;;
     *)
         if [ ! -r "$VISUGIT_JAR" ]; then
             $SCRIPT self-install
@@ -100,5 +102,6 @@ case "$1" in
             CLASSPATH=`cygpath -wp "$CLASSPATH"`
             NULL_DEVICE=NUL
         fi
-        exec java -cp $CLASSPATH clojure.main -m visugit.core $@;;
+        exec java -cp $CLASSPATH clojure.main -m visugit.core $@
+        ;;
 esac
