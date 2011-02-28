@@ -23,6 +23,7 @@
 (defonce tags (ref {}))
 (defonce commits (ref {}))
 (defonce dug-commits (ref {}))
+(defonce search-commit-queue (ref []))
 (defonce parent->child-commits (ref {}))
 (defonce id->particle-map (ref {}))
 (defonce springs (ref {}))
@@ -129,24 +130,28 @@
 (defn update-commits []
   (when-not (empty? @dug-commits)
     (let [cache (ref nil)]
-    (dosync
-     (alter commits merge @dug-commits)
-     (ref-set cache @dug-commits)
-     (ref-set dug-commits {}))
-    (doseq [co (vals @cache)]
-      (add-commit co)))))
+      (dosync
+       (alter commits merge @dug-commits)
+       (ref-set cache @dug-commits)
+       (ref-set dug-commits {}))
+      (doseq [co (vals @cache)]
+        (add-commit co)))))
 
-(defn digging-commits [starts]
-  (doseq [start starts]
-    (let [new-commits (git/get-commit-map-diff start (merge @dug-commits @commits))]
-      (when-not (empty? new-commits)
-        (dosync (alter dug-commits merge new-commits))))))
+(defn digging-commits [polling-ms]
+  (loop []
+    (when-not (empty? @search-commit-queue)
+      (let [fs (first @search-commit-queue)
+            new-commits (git/get-commit-map-diff fs (merge @dug-commits @commits))]
+        (dosync (alter search-commit-queue subvec 1)
+                (alter dug-commits merge new-commits))))
+    (Thread/sleep polling-ms)
+    (recur)))
 
-(defn bind-commit-or-background-search [r]
-  (if (@id->particle-map (:id r))
+(defn bind-commit-or-background-search [{:keys [name id]}]
+  (if (@id->particle-map id)
       (create-springs {:constrained {:len 5 :str 0.001}}
-                      (:name r) [(:id r)])
-      (future (digging-commits [(:id r)]))))
+                      name [id])
+      (dosync (alter search-commit-queue conj id))))
 
 (defn add-tag [{:keys [id name] :as r}]
   (let [t-name (str "tag:" name)
@@ -282,13 +287,13 @@
 (defn setup []
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
-  (dosync (ref-set dug-refs (git/get-refs)))
   (.setWorldBounds physics
                    (Rect. (Vec2D. 20 10)
                           (Vec2D. (- (width) 20) (- (/ (height) 2) 10))))
+  (dosync (ref-set dug-refs (git/get-refs)))
   (update-refs)
   (future (update-stage&wt 1000))
-  (future (digging-commits (keys @dug-refs)))
+  (future (digging-commits 1000))
   (future (digging-refs 1000))
   (smooth)
   (no-stroke)
