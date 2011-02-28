@@ -122,7 +122,7 @@
   (create-springs {:constrained {:len 5 :str 0.01}}
                   id (map :name (filter (fn [r] (= id (:id r))) (vals @refs)))))
 
-(defn update-commits [commits dug-commits]
+(defn update-commits []
   (when-not (empty? @dug-commits)
     (let [cache (ref nil)]
     (dosync
@@ -177,10 +177,9 @@
 
 (defn modify-ref [old-ref new-ref]
   (remove-spring #{(:name old-ref) (:id old-ref) :constrained})
-  (create-springs {:constrained {:len 5 :str 0.01}}
-                  (:name new-ref) [(:id new-ref)]))
+  (bind-commit-or-background-search new-ref))
 
-(defn update-refs [refs dug-refs]
+(defn update-refs []
   (when (not= @refs @dug-refs)
     (let [refs-set (-> @refs keys set)
           dug-refs-set (-> @dug-refs keys set)
@@ -197,7 +196,7 @@
         (remove-particle&springs id)
         (remove-particle&springs (str "label:" id))))))
 
-(defn digging-refs [dug-refs polling-ms]
+(defn digging-refs [polling-ms]
   (loop []
     (dosync (ref-set dug-refs (git/get-refs)))
     (Thread/sleep polling-ms)
@@ -244,8 +243,8 @@
   (stroke-float 150)
   (color-mode RGB)
   (fill-float 50 50 200 250)
-  (update-commits commits dug-commits)
-  (update-refs refs dug-refs)
+  (update-commits)
+  (update-refs)
   (draw-commit)
   (draw-refs)
   (draw-stage&wt))
@@ -259,10 +258,10 @@
   (.setWorldBounds physics
                    (Rect. (Vec2D. 20 10)
                           (Vec2D. (- (width) 20) (- (/ (height) 2) 10))))
-  (update-refs refs dug-refs)
+  (update-refs)
   (future (update-stage&wt 1000))
-  (future (digging-commits (keys @dug-refs) commits dug-commits))
-  (future (digging-refs dug-refs 1000))
+  (future (digging-commits (keys @dug-refs)))
+  (future (digging-refs 1000))
   (smooth)
   (no-stroke)
   (fill 226)
