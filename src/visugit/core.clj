@@ -73,13 +73,20 @@
       (Thread/sleep polling-ms)
       (recur))))
 
-(defn create-particle [id]
-  (let [p (VerletParticle2D. (float (rand-int 1000))
-                             (float (rand-int 1000)))]
-    (dosync
-     (alter id->particle-map assoc id p))
-    (.addParticle physics p)
-    p))
+(defn create-particle
+  ([id]
+     (create-particle id (rand-int 1000) (rand-int 1000)))
+  ([id parent-ids]
+     (if-let [^VerletParticle2D parent-p (first (keep @id->particle-map parent-ids))]
+       (create-particle id (.x parent-p) (.y parent-p))
+       (create-particle id)))
+  ([id x y]
+     (let [p (VerletParticle2D. (float x)
+                                (float y))]
+       (dosync
+        (alter id->particle-map assoc id p))
+       (.addParticle physics p)
+       p)))
 
 (defn create-springs [{:keys [constrained min]} me-id other-ids]
   ;;(println :create-springs constrained me-id other-ids)
@@ -99,14 +106,14 @@
                 (dosync (alter springs assoc k s))
                 (.addSpring physics s)))))))))
 
-(defn add-commit [{:keys [id] :as co}]
-  (create-particle id)
+(defn add-commit [{:keys [id parents] :as co}]
+  (create-particle id parents)
   (dosync
-   (doseq [parent-id (:parents co)]
+   (doseq [parent-id parents]
      (alter parent->child-commits update-in [parent-id]
             (fn [child-ids] (if child-ids (conj child-ids id) [id])))))
   ;;attraction to parents
-  (create-springs {:constrained {:len 30 :str 0.01}} id (:parents co))
+  (create-springs {:constrained {:len 30 :str 0.01}} id parents)
   ;;attraction to childs
   (create-springs {:constrained {:len 30 :str 0.01}} id (@parent->child-commits id))
   ;;repulsion
@@ -125,22 +132,30 @@
     (doseq [co (vals @cache)]
       (add-commit co)))))
 
-(defn digging-commits [starts commits dug-commits]
+(defn digging-commits [starts]
   (doseq [start starts]
     (let [new-commits (git/get-commit-map-diff start (merge @dug-commits @commits))]
       (when-not (empty? new-commits)
         (dosync (alter dug-commits merge new-commits))))))
 
+(defn bind-commit-or-background-search [r]
+  (if (@id->particle-map (:id r))
+      (create-springs {:constrained {:len 5 :str 0.01}}
+                      (:name r) [(:id r)])
+      (future (digging-commits [(:id r)]))))
+
 (defn add-ref [{name :name :as r}]
   (let [label-id (str "label:" name)]
-    (create-particle name)
-    (create-particle label-id)
+    (create-particle name (:id r))
+    (create-particle label-id (:id r))
     (create-springs {:constrained {:len 5 :str 0.05}, :min {:len 20 :str 0.001}}
                     name [label-id])
     ;;label - label repulsion
     (create-springs {:min {:len 25 :str 0.6}}
                     name (map #(str "label:" %)
-                              (keys (filter git/is-type-commit? @refs))))))
+                              (keys (filter git/is-type-commit? @refs))))
+    ;;attraction to corresponding commit
+    (bind-commit-or-background-search r)))
 
 (defn remove-particle&springs [id]
   (let [p (@id->particle-map id)
