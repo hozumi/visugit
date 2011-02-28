@@ -2,7 +2,7 @@
 Visugit is a visualization tool for git repository.<br>
 <img src="https://github.com/downloads/hozumi/visugit/visugit_screen1.png" alt="visugit screen shot" title="visugit screenshot" align="center" />
 ## Install
-I checked on OSX 10.6 and Ubuntu 10.04.<br>
+Tested on OSX 10.6 and Ubuntu 10.04.<br>
 
     % wget --no-check-certificate https://github.com/hozumi/visugit/raw/stable/bin/visugit
     % chmod +x visugit
