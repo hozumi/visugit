@@ -1,5 +1,5 @@
 (defproject visugit "1.0.0-SNAPSHOT"
-  :description "FIXME: write"
+  :description "visualize git repository"
   :warn-on-reflection true,
   :dependencies [[org.clojure/clojure "1.3.0-alpha4"]
                  [org.clojure/clojure-contrib "1.2.0"]
