@@ -25,9 +25,9 @@ NULL_DEVICE=/dev/null
 
 # normalize $0 on certain BSDs
 if [ "$(dirname "$0")" = "." ]; then
-    SCRIPT="$(which $(basename "$0"))"
-else
     SCRIPT="$0"
+else
+    SCRIPT="$(which $(basename "$0"))"
 fi
 
 # resolve symlinks to the script itself portably
