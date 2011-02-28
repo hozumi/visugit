@@ -134,16 +134,16 @@
       [])))
 
 (defn get-modified-files []
-  (if-let [out (-> (shell/sh "git" "ls-files" "-m" {:dir @dir})
+  (if-let [out (-> (shell/sh "git" "ls-files" "-m" "--directory" {:dir @dir})
                    deref :out)]
     (cstr/split-lines out)
     []))
 
 (defn get-untracked-files []
-  (let [resp (-> (shell/sh "git" "ls-files" "-o" "--exclude-from=.gitignore" {:dir @dir})
+  (let [resp (-> (shell/sh "git" "ls-files" "-o" "--directory" "--exclude-from=.gitignore" {:dir @dir})
                  deref)]
     (if (= 128 (:exit resp))
-      (if-let [out (-> (shell/sh "git" "ls-files" "-o" {:dir @dir})
+      (if-let [out (-> (shell/sh "git" "ls-files" "-o" "--directory" {:dir @dir})
                        deref :out)]
         (cstr/split-lines out)
         [])
