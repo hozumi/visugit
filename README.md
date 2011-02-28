@@ -32,6 +32,6 @@ Install **visugit** command wherever you want.<br>
 
 ## License
 
-Copyright (C) 2010 FIXME
+Copyright (C) 2010 Takahiro Hozumi.
 
 Distributed under the Eclipse Public License.
