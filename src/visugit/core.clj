@@ -120,10 +120,10 @@
   ;;repulsion
   (create-springs {:min {:len 50 :str 0.001}} id (keys @commits))
   ;;attraction to corresponding refs
-  (create-springs {:constrained {:len 5 :str 0.01}}
+  (create-springs {:constrained {:len 5 :str 0.001}}
                   id (map :name (filter (fn [r] (= id (:id r))) (vals @refs))))
   ;;attraction to corresponding tags
-  (create-springs {:constrained {:len 5 :str 0.01}}
+  (create-springs {:constrained {:len 5 :str 0.001}}
                   id (map :name (filter (fn [t] (= id (:refer t))) (vals @tags)))))
 
 (defn update-commits []
@@ -144,7 +144,7 @@
 
 (defn bind-commit-or-background-search [r]
   (if (@id->particle-map (:id r))
-      (create-springs {:constrained {:len 5 :str 0.01}}
+      (create-springs {:constrained {:len 5 :str 0.001}}
                       (:name r) [(:id r)])
       (future (digging-commits [(:id r)]))))
 
