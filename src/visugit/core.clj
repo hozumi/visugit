@@ -82,25 +82,29 @@
     p))
 
 (defn create-springs [{:keys [constrained min]} me-id other-ids]
+  ;;(println :create-springs constrained me-id other-ids)
   (let [me-p (@id->particle-map me-id)]
-    (doseq [other-id other-ids]
-      (when (not= me-id other-id)
-        (when-let [other-p (@id->particle-map other-id)]
-          (when constrained
-            (let [s (VerletConstrainedSpring2D. me-p other-p (:len constrained) (:str constrained))]
-              (dosync (alter springs assoc #{me-id other-id :constrained} s))
-              (.addSpring physics s)))
-          (when min
-            (let [s (VerletMinDistanceSpring2D. me-p other-p (:len min) (:str min))]
-              (dosync (alter springs assoc #{me-id other-id :min} s))
-              (.addSpring physics s))))))))
+    (doseq [other-id (filter #(not= me-id %) other-ids)]
+      (when-let [other-p (@id->particle-map other-id)]
+        (when constrained
+          (let [k #{me-id other-id :constrained}]
+            (when-not (@springs k)
+              (let [s (VerletConstrainedSpring2D. me-p other-p (:len constrained) (:str constrained))]
+                (dosync (alter springs assoc k s))
+                (.addSpring physics s)))))
+        (when min
+          (let [k #{me-id other-id :min}]
+            (when-not (@springs k)
+              (let [s (VerletMinDistanceSpring2D. me-p other-p (:len min) (:str min))]
+                (dosync (alter springs assoc k s))
+                (.addSpring physics s)))))))))
 
 (defn add-commit [{:keys [id] :as co}]
   (create-particle id)
   (dosync
    (doseq [parent-id (:parents co)]
      (alter parent->child-commits update-in [parent-id]
-            (fn [child-ids] (if child-ids [id] (conj child-ids id))))))
+            (fn [child-ids] (if child-ids (conj child-ids id) [id])))))
   ;;attraction to parents
   (create-springs {:constrained {:len 30 :str 0.01}} id (:parents co))
   ;;attraction to childs
