@@ -58,11 +58,15 @@ if [ "$1" = "self-install" ]; then
     mkdir -p "$VISUGIT_DIR"
     VISUGIT_URL="https://github.com/downloads/hozumi/visugit/visugit-$VISUGIT_VERSION-standalone.jar"
     $HTTP_CLIENT "$VISUGIT_JAR" "$VISUGIT_URL"
-    if [ $? != 0 ]; then
-        echo "Failed to download $VISUGIT_URL"
-        rm $VISUGIT_JAR 2> /dev/null
-        exit 1
-    fi
+    case $? in
+        0)
+            echo "Download successfull : $VISUGIT_JAR"
+            exit 0;;
+        *)
+            echo "Failed to download $VISUGIT_URL"
+            rm $VISUGIT_JAR 2> /dev/null
+            exit 1;;
+    esac
 elif [ "$1" = "upgrade" ]; then
     if [ ! -w "$SCRIPT" ]; then
         echo "You do not have permission to upgrade the installation in $SCRIPT"
@@ -77,6 +81,7 @@ elif [ "$1" = "upgrade" ]; then
                 echo "Upgrading..."
                 VISUGIT_SCRIPT_URL="https://github.com/hozumi/visugit/raw/stable/bin/visugit"
                 $HTTP_CLIENT "$SCRIPT" "$VISUGIT_SCRIPT_URL" \
+                    && echo "Download successfull : $SCRIPT" \
                     && chmod +x "$SCRIPT" \
                     && echo && $SCRIPT self-install && echo && echo "Now running" `$SCRIPT version`
                 exit $?;;
