@@ -47,12 +47,10 @@
                       n (simple-name nam)]
                   [n {:name n, :id sha1, :type type}])))))
 
-(defn run-update-refs [refs-ref polling-ms]
-  (loop []
-    (let [new-refs (get-refs)]
-      (dosync (ref-set refs-ref new-refs))
-      (Thread/sleep polling-ms)
-      (recur))))
+(defn get-tag-refer [tag-name]
+  (second (cstr/split (first (-> (shell/sh "git" "cat-file" "-p" tag-name {:dir @dir})
+                                 deref :out cstr/split-lines))
+                      #"\s+")))
 
 (defn is-type-commit? [[_ r]]
   (= (:type r) "commit"))
@@ -75,8 +73,6 @@
 (defn get-tree-id [line]
   (let [[_ id] (re-find #"tree (.*)$" line)]
     id))
-;; (get-tree-id "tree 47975e7102c8933c2b0ddf62bc9f92055a50167e")
-;; "47975e7102c8933c2b0ddf62bc9f92055a50167e"
 
 (defn get-parent-ids [lines]
   (map (fn [line] (second (re-find #"parent (.*)$" line)))
@@ -107,7 +103,6 @@
                  (let [[typenum type id file] (.split line "\\s+")]
                    [id {:type type :file file}]))
                lines))))
-;;(catch Exception e (.printStackTrace e))))
 
 (defn tree? [{type :type}]
   (= "tree" type))

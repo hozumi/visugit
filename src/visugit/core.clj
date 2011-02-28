@@ -20,6 +20,7 @@
 
 (defonce refs (ref {}))
 (defonce dug-refs (ref {}))
+(defonce tags (ref {}))
 (defonce commits (ref {}))
 (defonce dug-commits (ref {}))
 (defonce parent->child-commits (ref {}))
@@ -120,7 +121,10 @@
   (create-springs {:min {:len 50 :str 0.001}} id (keys @commits))
   ;;attraction to corresponding refs
   (create-springs {:constrained {:len 5 :str 0.01}}
-                  id (map :name (filter (fn [r] (= id (:id r))) (vals @refs)))))
+                  id (map :name (filter (fn [r] (= id (:id r))) (vals @refs))))
+  ;;attraction to corresponding tags
+  (create-springs {:constrained {:len 5 :str 0.01}}
+                  id (map :name (filter (fn [t] (= id (:refer t))) (vals @tags)))))
 
 (defn update-commits []
   (when-not (empty? @dug-commits)
@@ -144,7 +148,17 @@
                       (:name r) [(:id r)])
       (future (digging-commits [(:id r)]))))
 
-(defn add-ref [{name :name :as r}]
+(defn add-tag [{:keys [id name] :as r}]
+  (let [t-name (str "tag:" name)
+        t (assoc r :name t-name :refer (git/get-tag-refer id))]
+    (dosync (alter tags conj [t-name t]))
+    (create-particle t-name)
+    (create-springs {:constrained {:len 5 :str 0.05}, :min {:len 20 :str 0.001}}
+                    t-name [name])
+    ;;attraction to corresponding commit
+    (bind-commit-or-background-search t)))
+
+(defn add-ref [{:keys [id name type] :as r}]
   (let [label-id (str "label:" name)]
     (create-particle name (:id r))
     (create-particle label-id (:id r))
@@ -154,8 +168,10 @@
     (create-springs {:min {:len 25 :str 0.6}}
                     name (map #(str "label:" %)
                               (keys (filter git/is-type-commit? @refs))))
-    ;;attraction to corresponding commit
-    (bind-commit-or-background-search r)))
+    (if (= type "tag")
+      (add-tag r)
+      ;;attraction to corresponding commit
+      (bind-commit-or-background-search r))))
 
 (defn remove-particle&springs [id]
   (let [p (@id->particle-map id)
@@ -179,22 +195,27 @@
   (remove-spring #{(:name old-ref) (:id old-ref) :constrained})
   (bind-commit-or-background-search new-ref))
 
+(defn delete-ref [{:keys [type name id]}]
+  (remove-particle&springs id)
+  (remove-particle&springs (str "label:" id))
+  (when (= "tag" type)
+    (remove-particle&springs (str "tag:" name))))
+
 (defn update-refs []
   (when (not= @refs @dug-refs)
     (let [refs-set (-> @refs keys set)
           dug-refs-set (-> @dug-refs keys set)
           removed-ref-ids (set/difference refs-set dug-refs-set)
+          removed-refs (map @refs removed-ref-ids)
           added-ref-ids (set/difference dug-refs-set refs-set)
           modified-ids (filter (fn [k] (not= (@refs k) (@dug-refs k)))
                                (set/intersection refs-set dug-refs-set))]
       (doall (map modify-ref (map @refs modified-ids) (map @dug-refs modified-ids)))
       (dosync
        (ref-set refs @dug-refs))
-      (doseq [r (map @refs added-ref-ids)]
+      (doseq [{:keys [id] :as r} (map @refs added-ref-ids)]
         (add-ref r))
-      (doseq [id removed-ref-ids]
-        (remove-particle&springs id)
-        (remove-particle&springs (str "label:" id))))))
+      (doall (map delete-ref removed-refs)))))
 
 (defn digging-refs [polling-ms]
   (loop []
@@ -202,12 +223,20 @@
     (Thread/sleep polling-ms)
     (recur)))
 
-(defn draw-refs []
-  (doseq [k (filter @id->particle-map (keys (filter git/is-type-commit? @refs)))]
+(defn draw-tags []
+  (doseq [[k] @tags]
     (let [^VerletParticle2D p (@id->particle-map k)]
-      (if (= "HEAD" k)
-        (fill-float 250 50 50 150)
-        (fill-float 100 250 200 150))
+      (fill-float 255 255 20 200)
+      (ellipse (.x p) (.y p) 10 10))))
+
+(defn draw-refs []
+  (doseq [[^String k] @refs];;(filter @id->particle-map (keys @refs))]
+    (let [^VerletParticle2D p (@id->particle-map k)]
+      (cond
+       (= "HEAD" k) (fill-float 250 50 50 150)
+       (.startsWith k "tags/") (fill-float 220 220 50 150)
+       (.contains k "/") (fill-float 0 250 250 150)
+       :else (fill-float 30 255 30 200))
       (ellipse (.x p) (.y p) 10 10))
     (let [^VerletParticle2D p (@id->particle-map (str "label:" k))]
       (text-align CENTER)
@@ -246,6 +275,7 @@
   (update-commits)
   (update-refs)
   (draw-commit)
+  (draw-tags)
   (draw-refs)
   (draw-stage&wt))
 
@@ -253,7 +283,7 @@
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
   (dosync
-   (ref-set git/dir "../git_tutorial/work/hello/")
+   (ref-set git/dir "../ring/");;"../git_tutorial/work/hello/")
    (ref-set dug-refs (git/get-refs)))
   (.setWorldBounds physics
                    (Rect. (Vec2D. 20 10)
@@ -268,7 +298,7 @@
   (framerate 10))
 
 
-(proapp/defapplet example2 :title "An example."
+(proapp/defapplet example2 :title "visugit"
   :setup setup :draw draw :size [800 800])
 
 
