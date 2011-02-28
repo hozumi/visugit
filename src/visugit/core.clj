@@ -19,14 +19,59 @@
            [toxi.geom Rect Vec2D]))
 
 (defonce refs (ref {}))
-(defonce digged-refs (ref {}))
+(defonce dug-refs (ref {}))
 (defonce commits (ref {}))
-(defonce digged-commits (ref {}))
+(defonce dug-commits (ref {}))
 (defonce parent->child-commits (ref {}))
 (defonce id->particle-map (ref {}))
 (defonce springs (ref {}))
-(defonce stop-digg-commits-flag (ref false))
 (defonce ^VerletPhysics2D physics (VerletPhysics2D.))
+
+(defonce staged-files (ref []))
+(defonce modified-files (ref []))
+(defonce untracked-files (ref []))
+
+(def text-height 20)
+(def row-max 10)
+
+(defn draw-column-word [words base-x base-y]
+  (text-align LEFT)
+  (doseq [[i part] (seq-utils/indexed (partition-all row-max words))]
+    (doseq [[n s] (seq-utils/indexed part)]
+      (string->text s
+                    (+ base-x (* 100 i))
+                    (+ base-y (* text-height n))))))
+
+(defn draw-stage&wt []
+  (let [staged-y (+ (/ (height) 2) 20)
+        modified-y (+ staged-y (* text-height (inc (min row-max (count @staged-files)))))
+        untracked-y (+ modified-y (* text-height (inc (min row-max (count @modified-files)))))]
+    (fill 0)
+    (text-align LEFT)
+    (string->text "staged files" 10 staged-y)
+    (fill 50 200 50)
+    (draw-column-word @staged-files 100 staged-y)
+    (fill 0)
+    (string->text "modified files" 10 modified-y)
+    (fill 250 50 50)
+    (draw-column-word @modified-files 100 modified-y)
+    (fill 0)
+    (string->text "untracked files" 10 untracked-y)
+    (fill 50 50 50)
+    (draw-column-word @untracked-files 100 untracked-y)
+    ))
+
+(defn update-stage&wt [polling-ms]
+  (loop []
+    (let [staged (git/get-staged-files)
+          modified (git/get-modified-files)
+          untracked (git/get-untracked-files)]
+      (dosync
+       (ref-set staged-files staged)
+       (ref-set modified-files modified)
+       (ref-set untracked-files untracked))
+      (Thread/sleep polling-ms)
+      (recur))))
 
 (defn create-particle [id]
   (let [p (VerletParticle2D. (float (rand-int 1000))

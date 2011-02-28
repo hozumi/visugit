@@ -24,6 +24,7 @@
      (= fs "HEAD") fs
      (= sec "tags") (str sec "/" thir)
      (= sec "heads") thir
+     (= sec "stash") sec
      (= sec "remotes") (str thir "/" four))))
 
 (defn get-head-ref []
