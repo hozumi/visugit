@@ -85,24 +85,19 @@
 (defn commit-obj [^String obj-line acc]
   (let [[hash parents tree date author subject]
         (.split obj-line "::::")]
-    (if-let [co (acc hash)]
-      co
+    (if (acc hash)
+      nil
       (let [parents (seq (.split ^String parents " "))
             parents (if (= parents '("")) () parents)]
         {:id hash :parents parents :tree tree :date (-> date read-string long Date.)
          :author author :subject subject}))))
 
-(defn commit-map [start acc]
+(defn get-commit-map-diff [start acc]
   (reduce (fn [m co] (assoc m (:id co) co)) {}
-          (map #(commit-obj % acc)
-               (-> (shell/sh "git" "log" "--format=%H::::%P::::%T::::%at::::%an::::%s"
-                             start {:dir @dir})
-                   deref :out cstr/split-lines))))
-
-(defn run-update-commit-map [starts digged-commits-ref total-commits]
-  (doseq [start starts]
-    (let [commits (commit-map start (merge @digged-commits-ref total-commits))]
-      (dosync (alter digged-commits-ref merge commits)))))
+          (keep #(commit-obj % acc)
+                (-> (shell/sh "git" "log" "--format=%H::::%P::::%T::::%at::::%an::::%s"
+                              start {:dir @dir})
+                    deref :out cstr/split-lines))))
 
 (defn tree-obj [obj-id]
   (let [lines (-> (shell/sh "git" "cat-file" "-p" obj-id {:dir @dir})
