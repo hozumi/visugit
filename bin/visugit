@@ -46,9 +46,9 @@ if type -p curl >/dev/null 2>&1; then
     HTTP_CLIENT="curl --insecure -f -L -o"
 fi
 
-# If you're packaging this for a package manager (.deb, homebrew, etc)
-# you need to remove the self-install and upgrade functionality.
-if [ "$1" = "self-install" ]; then
+if [ "$1" = "version" ]; then
+    echo "visugit version is $VISUGIT_VERSION"
+elif [ "$1" = "self-install" ]; then
     echo "Downloading Visugit now..."
     VISUGIT_DIR=`dirname "$VISUGIT_JAR"`
     mkdir -p "$VISUGIT_DIR"
