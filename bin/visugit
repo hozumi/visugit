@@ -1,0 +1,97 @@
+#!/bin/sh
+
+export VISUGIT_VERSION="1.0.0-SNAPSHOT"
+
+# Make sure classpath is in unix format for manipulating, then put
+# it back to windows format when we use it
+if [ "$OSTYPE" = "cygwin" ] && [ "$CLASSPATH" != "" ]; then
+    CLASSPATH=`cygpath -up $CLASSPATH`
+fi
+
+if [ "$USER" = "root" ] && [ "$VISUGIT_ROOT" = "" ]; then
+    echo "WARNING: You're currently running as root; probably by accident."
+    echo "Press control-C to abort or Enter to continue as root."
+    echo "Set VISUGIT_ROOT to disable this warning."
+    read
+fi
+
+if [ "$VISUGIT_HOME" = "" ]; then
+    VISUGIT_HOME="$HOME/.visugit"
+fi
+
+VISUGIT_JAR="$VISUGIT_HOME/self-installs/visugit-$VISUGIT_VERSION-standalone.jar"
+CLASSPATH=$VISUGIT_JAR:$CLASSPATH
+NULL_DEVICE=/dev/null
+
+# normalize $0 on certain BSDs
+if [ "$(dirname "$0")" = "." ]; then
+    SCRIPT="$(which $(basename "$0"))"
+else
+    SCRIPT="$0"
+fi
+
+# resolve symlinks to the script itself portably
+while [ -h "$SCRIPT" ] ; do
+    ls=`ls -ld "$SCRIPT"`
+    link=`expr "$ls" : '.*-> \(.*\)$'`
+    if expr "$link" : '/.*' > /dev/null; then
+        SCRIPT="$link"
+    else
+        SCRIPT="$(dirname "$SCRIPT"$)/$link"
+    fi
+done
+
+if [ ! -r "$VISUGIT_JAR" -a "$1" != "self-install" ]; then
+    "$0" self-install
+fi
+
+HTTP_CLIENT="wget --no-check-certificate -O"
+if type -p curl >/dev/null 2>&1; then
+    HTTP_CLIENT="curl --insecure -f -L -o"
+fi
+
+# If you're packaging this for a package manager (.deb, homebrew, etc)
+# you need to remove the self-install and upgrade functionality.
+if [ "$1" = "self-install" ]; then
+    echo "Downloading Visugit now..."
+    VISUGIT_DIR=`dirname "$VISUGIT_JAR"`
+    mkdir -p "$VISUGIT_DIR"
+    VISUGIT_URL="https://github.com/downloads/hozumi/visugit/visugit-$VISUGIT_VERSION-standalone.jar"
+    $HTTP_CLIENT "$VISUGIT_JAR" "$VISUGIT_URL"
+    if [ $? != 0 ]; then
+        echo "Failed to download $VISUGIT_URL"
+        rm $VISUGIT_JAR 2> /dev/null
+        exit 1
+    fi
+elif [ "$1" = "upgrade" ]; then
+    if [ ! -w "$SCRIPT" ]; then
+        echo "You do not have permission to upgrade the installation in $SCRIPT"
+        exit 1
+    else
+        echo "The script at $SCRIPT will be upgraded to the latest stable version."
+        echo -n "Do you want to continue [Y/n]? "
+        read RESP
+        case "$RESP" in
+            y|Y|"")
+                echo
+                echo "Upgrading..."
+                VISUGIT_SCRIPT_URL="https://github.com/hozumi/visugit/raw/stable/bin/visugit"
+                $HTTP_CLIENT "$SCRIPT" "$VISUGIT_SCRIPT_URL" \
+                    && chmod +x "$SCRIPT" \
+                    && echo && $SCRIPT self-install && echo && echo "Now running" `$SCRIPT version`
+                exit $?;;
+            *)
+                echo "Aborted."
+                exit 1;;
+        esac
+    fi
+else
+    if [ "$OSTYPE" = "cygwin" ]; then
+        # When running on Cygwin, use Windows-style paths for java
+        ORIGINAL_PWD=`cygpath -w "$ORIGINAL_PWD"`
+        CLASSPATH=`cygpath -wp "$CLASSPATH"`
+        NULL_DEVICE=NUL
+    fi
+
+    exec java -cp $CLASSPATH clojure.main -m visugit.core $@
+fi
