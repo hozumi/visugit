@@ -282,9 +282,7 @@
 (defn setup []
   (let [f (create-font "Arial" 11 true)]
     (text-font f))
-  (dosync
-   (ref-set git/dir "../ring/");;"../git_tutorial/work/hello/")
-   (ref-set dug-refs (git/get-refs)))
+  (dosync (ref-set dug-refs (git/get-refs)))
   (.setWorldBounds physics
                    (Rect. (Vec2D. 20 10)
                           (Vec2D. (- (width) 20) (- (/ (height) 2) 10))))
@@ -297,8 +295,10 @@
   (fill 226)
   (framerate 10))
 
-
 (proapp/defapplet example2 :title "visugit"
   :setup setup :draw draw :size [800 800])
 
-
+(defn -main [& [target]]
+  (dosync
+   (ref-set git/dir target))
+  (proapp/run example2))
