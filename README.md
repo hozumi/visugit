@@ -1,6 +1,7 @@
 # Visugit
 Visugit is a visualization tool for git repository.<br>
 <img src="https://github.com/downloads/hozumi/visugit/visugit_screen1.png" alt="visugit screen shot" title="visugit screenshot" align="center" />
+[Screencast](http://www.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d)
 ## Install
 Tested on OSX 10.6 and Ubuntu 10.04.<br>
 
