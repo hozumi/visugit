@@ -1,7 +1,16 @@
 # Visugit
 Visugit is a visualization tool for git repository.<br>
-<img src="https://github.com/downloads/hozumi/visugit/visugit_screen1.png" alt="visugit screen shot" title="visugit screenshot" align="center" />
-[Screencast](http://www.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d)
+<object id="scPlayer" class="embeddedObject" width="799" height="809" type="application/x-shockwave-flash" data="http://content.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d/jingswfplayer.swf">
+	<param name="movie" value="http://content.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d/jingswfplayer.swf">
+	<param name="quality" value="high">
+	<param name="bgcolor" value="#FFFFFF">
+	<param name="flashVars" value="containerwidth=799&amp;containerheight=809&amp;thumb=http://content.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d/FirstFrame.jpg&amp;content=http://content.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d/00000002.swf&amp;blurover=false">
+	<param name="allowFullScreen" value="true">
+	<param name="scale" value="showall">
+	<param name="allowScriptAccess" value="always">
+	<param name="base" value="http://content.screencast.com/users/hozumi/folders/Jing/media/f38ec2ce-ac26-4d07-aff2-ea3ad109f26d/">
+</object>
+
 ## Install
 Tested on OSX 10.6 and Ubuntu 10.04.<br>
 
